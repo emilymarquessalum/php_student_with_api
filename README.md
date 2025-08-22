@@ -76,8 +76,7 @@ Este é um projeto de demonstração e inclui medidas básicas de segurança. Pa
 │   └── database.php    # Configuração do banco de dados
 ├── index.php           # Ponto de entrada, redireciona para o painel
 ├── login.php           # Página de login para professores e alunos
-├── logout.php          # Gerencia destruição da sessão
-├── test_db.php         # Teste de conexão com banco de dados
+├── logout.php          # Gerencia destruição da sessão 
 ├── teacher/
 │   └── dashboard.php   # Painel do professor com geração de QR
 └── student/

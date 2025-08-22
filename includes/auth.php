@@ -2,16 +2,14 @@
 // includes/auth.php
 // Centralized session authentication and expiry logic for all protected pages
 
-function require_auth($role = null) {
+function require_auth($role = null)
+{
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
-    $token_lifetime = 1800; // 30 minutes
     if (
         !isset($_SESSION['user_type']) ||
-        !isset($_SESSION['session_token']) ||
-        !isset($_SESSION['token_expiry']) ||
-        $_SESSION['token_expiry'] < time() ||
+        !isset($_SESSION['access_token']) ||
         ($role && $_SESSION['user_type'] !== $role)
     ) {
         // Save intended URL for redirect after login
@@ -20,9 +18,7 @@ function require_auth($role = null) {
         //session_unset();
         //session_destroy();
         $_SESSION['redirect_after_login'] = $full_url;
-        header('Location: ' . (isset($role) && $role === 'student' ? '../login.php' : 'login.php'));
+        header('Location: ' . (isset($role) && $role === 'aluno' ? '../login.php' : 'login.php'));
         exit();
     }
-    // Refresh expiry
-    $_SESSION['token_expiry'] = time() + $token_lifetime;
 }

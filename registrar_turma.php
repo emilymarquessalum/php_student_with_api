@@ -1,85 +1,73 @@
-
 <?php
+if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'config.php';
 require_once 'includes/auth.php';
+require_once 'includes/functions.php';
+
 require_auth('professor');
 $prof_id = $_SESSION['prof_id'];
+$access_token = $_SESSION['access_token'] ?? '';
 $success_message = '';
 $error_message = '';
 $debug_info = '';
- 
-// Handle form submission
+
+// Handle form submission to create a new class via API
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $nome_turma = trim($_POST['nome_turma'] ?? '');
     $disciplina_id = trim($_POST['disciplina_id'] ?? '');
     $year = trim($_POST['year'] ?? '');
-    
+
     // Validation
     if (empty($nome_turma) || empty($disciplina_id) || empty($year)) {
         $error_message = 'Todos os campos são obrigatórios.';
     } else {
         try {
-            // Generate unique turma ID
-            $turma_id = 'turma-' . uniqid();
-            $year_timestamp = $year . '-01-01 00:00:00';
-            
-            // Start transaction
-            $pdo->beginTransaction();
-            
-            // Debug: Log the values being inserted
-            $debug_info = "Tentando inserir: ID={$turma_id}, Nome={$nome_turma}, Disciplina={$disciplina_id}, Ano={$year_timestamp}";
-            
-            // Insert new turma
-            $stmt = $pdo->prepare("
-                INSERT INTO turma (id, nome_turma, disciplina_id, year) 
-                VALUES (?, ?, ?, ?)
-            ");
-            $stmt->execute([$turma_id, $nome_turma, $disciplina_id, $year_timestamp]);
-            
-            // Add professor to the turma (schema: professor_id, turma_id, tipo)
-            $stmt = $pdo->prepare("
-                INSERT INTO integrante_da_turma (turma_id, professor_id, tipo) 
-                VALUES (?, ?, 'professor')
-            ");
-            $stmt->execute([$turma_id, $prof_id]);
-            
-            // Commit transaction
-            $pdo->commit();
-            
-            $success_message = 'Turma criada com sucesso!';
-             
-            // Clear debug info on success
-            $debug_info = '';
-            
-            // Redirect after success
-            header('refresh:2;url=dashboard.php');
-            
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            $error_message = 'Erro ao criar turma. Tente novamente.';
-            
-            // Store detailed error information for debugging
-            $debug_info = "Erro SQL: " . $e->getMessage() . " | Código: " . $e->getCode();
-            
-            // Log error for server-side debugging
-            error_log("Database error in registrar_turma.php: " . $e->getMessage());
+            $headers = [
+                "Authorization: Bearer $access_token"
+            ];
+            $response = api_request("/class/create", 'POST', [
+                'nome_turma' => $nome_turma,
+                'disciplina_id' => $disciplina_id,
+                'year' => $year,
+                'professor_id' => $prof_id
+            ], $headers);
+
+            if ($response['success']) {
+                $success_message = 'Turma criada com sucesso!';
+                header('refresh:2;url=dashboard.php');
+            } else {
+                $error_message = $response['message'] ?? 'Erro desconhecido ao criar turma.';
+                $debug_info = $response['details'] ?? 'N/A';
+            }
+        } catch (Exception $e) {
+            $error_message = "Erro de conexão: " . $e->getMessage();
+            error_log("API call error in registrar_turma.php: " . $e->getMessage());
         }
     }
 }
 
-// Get available disciplines
+// Get available disciplines from the API
+$disciplinas = [];
 try {
-    $stmt = $pdo->prepare("SELECT id, name FROM disciplina ORDER BY name");
-    $stmt->execute();
-    $disciplinas = $stmt->fetchAll();
-} catch (PDOException $e) {
-    $disciplinas = [];
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $response = api_request("/disciplines", 'GET', null, $headers);
+    if ($response['success']) {
+        $disciplinas = $response['data'];
+    } else {
+        $error_message = 'Erro ao carregar disciplinas. Tente novamente mais tarde.';
+        error_log("API call error fetching disciplines: " . ($response['message'] ?? ''));
+    }
+} catch (Exception $e) {
+    $error_message = "Erro ao carregar disciplinas: " . $e->getMessage();
     error_log("Error fetching disciplines: " . $e->getMessage());
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -90,8 +78,8 @@ try {
     <link href="assets/css/dashboard.css" rel="stylesheet">
     <link href="assets/css/register-class.css" rel="stylesheet">
 </head>
+
 <body class="page-layout gradient">
-    <!-- Navigation -->
     <nav class="navbar">
         <div class="container flex justify-between items-center">
             <a class="navbar-brand" href="dashboard.php">
@@ -114,8 +102,7 @@ try {
     <div class="container mt-xl">
         <div class="flex justify-center">
             <div style="max-width: 600px; width: 100%;">
-                <!-- Page Header -->
-                <div class="page-header fade-in card" style="padding: 1.5rem;">>
+                <div class="page-header fade-in card" style="padding: 1.5rem;">
                     <div class="header-content">
                         <h1 class="page-title">
                             <i class="fas fa-plus-circle me-2"></i>
@@ -123,8 +110,9 @@ try {
                         </h1>
                         <p class="page-subtitle">
                             Crie uma nova turma para gerenciar presença e aulas
-                    </div> 
-                    
+                        </p>
+                    </div>
+
                     <div class="card-body">
                         <?php if ($success_message): ?>
                             <div class="alert alert-success" role="alert">
@@ -141,13 +129,13 @@ try {
                             <div class="alert alert-danger" role="alert">
                                 <i class="fas fa-exclamation-triangle me-2"></i>
                                 <?php echo htmlspecialchars($error_message); ?>
-                                
+
                                 <?php if ($debug_info): ?>
                                     <div class="mt-md">
-                                        <button type="button" 
-                                                class="btn btn-sm btn-outline" 
-                                                onclick="toggleDebugInfo()"
-                                                id="debugToggle">
+                                        <button type="button"
+                                            class="btn btn-sm btn-outline"
+                                            onclick="toggleDebugInfo()"
+                                            id="debugToggle">
                                             <i class="fas fa-bug me-1"></i>
                                             Mostrar Detalhes Técnicos
                                         </button>
@@ -167,39 +155,37 @@ try {
                         <?php endif; ?>
 
                         <form method="POST" class="registration-form">
-                            <!-- Nome da Turma -->
                             <div class="form-group">
                                 <label for="nome_turma" class="form-label">
                                     <i class="fas fa-users"></i>
                                     Nome da Turma
                                 </label>
-                                <input type="text" 
-                                       class="form-control" 
-                                       id="nome_turma" 
-                                       name="nome_turma" 
-                                       placeholder="Ex: 3º Ano A, Turma Manhã, etc."
-                                       value="<?php echo htmlspecialchars($_POST['nome_turma'] ?? ''); ?>"
-                                       required>
+                                <input type="text"
+                                    class="form-control"
+                                    id="nome_turma"
+                                    name="nome_turma"
+                                    placeholder="Ex: 3º Ano A, Turma Manhã, etc."
+                                    value="<?php echo htmlspecialchars($_POST['nome_turma'] ?? ''); ?>"
+                                    required>
                                 <div class="form-hint">
                                     <i class="fas fa-info-circle"></i>
                                     Escolha um nome descritivo para a turma
                                 </div>
                             </div>
 
-                            <!-- Disciplina -->
                             <div class="form-group">
                                 <label for="disciplina_id" class="form-label">
                                     <i class="fas fa-book"></i>
                                     Disciplina
                                 </label>
-                                <select class="form-control" 
-                                        id="disciplina_id" 
-                                        name="disciplina_id" 
-                                        required>
+                                <select class="form-control"
+                                    id="disciplina_id"
+                                    name="disciplina_id"
+                                    required>
                                     <option value="">Selecione uma disciplina</option>
                                     <?php foreach ($disciplinas as $disciplina): ?>
                                         <option value="<?php echo htmlspecialchars($disciplina['id']); ?>"
-                                                <?php echo (($_POST['disciplina_id'] ?? '') === $disciplina['id']) ? 'selected' : ''; ?>>
+                                            <?php echo (($_POST['disciplina_id'] ?? '') === $disciplina['id']) ? 'selected' : ''; ?>>
                                             <?php echo htmlspecialchars($disciplina['name']); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -210,24 +196,23 @@ try {
                                 </div>
                             </div>
 
-                            <!-- Ano Letivo -->
                             <div class="form-group">
                                 <label for="year" class="form-label">
                                     <i class="fas fa-calendar"></i>
                                     Ano Letivo
                                 </label>
-                                <select class="form-control" 
-                                        id="year" 
-                                        name="year" 
-                                        required>
+                                <select class="form-control"
+                                    id="year"
+                                    name="year"
+                                    required>
                                     <option value="">Selecione o ano</option>
-                                    <?php 
+                                    <?php
                                     $current_year = date('Y');
                                     $selected_year = $_POST['year'] ?? $current_year;
-                                    for ($i = $current_year - 1; $i <= $current_year + 2; $i++): 
+                                    for ($i = $current_year - 1; $i <= $current_year + 2; $i++):
                                     ?>
-                                        <option value="<?php echo $i; ?>" 
-                                                <?php echo ($selected_year == $i) ? 'selected' : ''; ?>>
+                                        <option value="<?php echo $i; ?>"
+                                            <?php echo ($selected_year == $i) ? 'selected' : ''; ?>>
                                             <?php echo $i; ?>
                                         </option>
                                     <?php endfor; ?>
@@ -238,7 +223,6 @@ try {
                                 </div>
                             </div>
 
-                            <!-- Professor Info (Read-only) -->
                             <div class="form-group">
                                 <label class="form-label">
                                     <i class="fas fa-chalkboard-teacher"></i>
@@ -259,7 +243,6 @@ try {
                                 </div>
                             </div>
 
-                            <!-- Form Actions -->
                             <div class="form-actions">
                                 <a href="dashboard.php" class="btn btn-secondary">
                                     <i class="fas fa-times"></i>
@@ -274,7 +257,6 @@ try {
                     </div>
                 </div>
 
-                <!-- Help Card -->
                 <div class="card enhanced help-card fade-in">
                     <div class="card-header">
                         <h4 class="card-title">
@@ -318,7 +300,7 @@ try {
         function toggleDebugInfo() {
             const debugInfo = document.getElementById('debugInfo');
             const toggleBtn = document.getElementById('debugToggle');
-            
+
             if (debugInfo.style.display === 'none') {
                 debugInfo.style.display = 'block';
                 toggleBtn.innerHTML = '<i class="fas fa-bug me-1"></i>Ocultar Detalhes Técnicos';
@@ -332,7 +314,7 @@ try {
         document.querySelector('.registration-form').addEventListener('submit', function(e) {
             const inputs = this.querySelectorAll('input[required], select[required]');
             let isValid = true;
-            
+
             inputs.forEach(input => {
                 if (!input.value.trim()) {
                     isValid = false;
@@ -341,7 +323,7 @@ try {
                     input.classList.remove('is-invalid');
                 }
             });
-            
+
             if (!isValid) {
                 e.preventDefault();
                 showAlert('Por favor, preencha todos os campos obrigatórios.', 'warning');
@@ -366,10 +348,10 @@ try {
                 ${message}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             `;
-            
+
             const form = document.querySelector('.registration-form');
             form.insertBefore(alertDiv, form.firstChild);
-            
+
             setTimeout(() => {
                 alertDiv.remove();
             }, 5000);
@@ -383,7 +365,7 @@ try {
                     el.style.opacity = '0';
                     el.style.transform = 'translateY(20px)';
                     el.style.transition = 'all 0.5s ease';
-                    
+
                     setTimeout(() => {
                         el.style.opacity = '1';
                         el.style.transform = 'translateY(0)';
@@ -393,4 +375,5 @@ try {
         });
     </script>
 </body>
+
 </html>

@@ -1,27 +1,27 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../includes/auth.php';
-require_once '../config.php'; 
-require_once '../includes/db.php';
-require_once '../includes/functions.php'; 
+require_once '../config.php';
+require_once '../includes/functions.php';
 
-require_auth('student');
-// Debug: show session and login data before auth check
-if (isset($_GET['debug'])) {
-    echo '<pre style="background:#eee;padding:10px;">SESSION (before require_auth): ' . print_r($_SESSION, true) . "\n";
-    echo '_POST: '; var_dump($_POST);
-    echo '_GET: '; var_dump($_GET);
-    echo '</pre>';
-} 
-// Debug: show session after auth check
-if (isset($_GET['debug'])) { 
-    echo '<pre style="background:#eee;padding:10px;">SESSION (after require_auth): ' . print_r($_SESSION, true) . '</pre>';
-}
-?> 
+require_auth('aluno');
 
+// The main PHP code is now minimal, as all logic is handled by the API
+$student_id = $_SESSION['aluno_id'] ?? null;
+$access_token = $_SESSION['access_token'] ?? '';
+$api_endpoint = $_ENV['API_ENDPOINT'] ?? 'http://localhost:8000'; // Get API endpoint from config
+?>
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Painel do Aluno</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
+
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -34,7 +34,7 @@ if (isset($_GET['debug'])) {
 
     <div class="container mt-4">
         <h2>Bem-vindo(a), <?php echo htmlspecialchars($_SESSION['username']); ?>!</h2>
-        
+
         <div class="row mt-4">
             <div class="col-md-6 mx-auto">
                 <div class="card">
@@ -51,58 +51,70 @@ if (isset($_GET['debug'])) {
     </div>
 
     <script>
+        const studentId = <?php echo json_encode($student_id); ?>;
+        const accessToken = <?php echo json_encode($access_token); ?>;
+        const apiEndpoint = <?php echo json_encode($api_endpoint); ?>;
+
         function onScanSuccess(decodedText, decodedResult) {
             try {
-                const attendanceData = JSON.parse(decodedText);
-                const currentTime = Date.now();
-                const scanTimeDiff = currentTime - attendanceData.timestamp;
-                
-                // Verifica se o QR code não está expirado (5 minutos de validade)
-                if (scanTimeDiff > 300000) { // 5 minutos em milissegundos
-                    document.getElementById('result').innerHTML = 
-                        '<div class="alert alert-danger">QR Code expirado. Por favor, solicite um novo código.</div>';
-                    return;
-                }
+                // The QR code data should now be a simple dia_aula_id or a token
+                const diaAulaId = decodedText;
 
-                // Envia dados de presença para o servidor
-                fetch('record_attendance.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        classId: attendanceData.classId,
-                        timestamp: attendanceData.timestamp,
-                        token: attendanceData.token
+                // Construct the full API URL for recording attendance
+                const apiUrl = `${apiEndpoint}/attendance/record`;
+
+                // Send attendance data directly to the API
+                fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${accessToken}`, // Use the access token
+                        },
+                        body: JSON.stringify({
+                            aluno_id: studentId,
+                            dia_aula_id: diaAulaId
+                        })
                     })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('result').innerHTML = 
-                        `<div class="alert alert-success">Presença registrada com sucesso!</div>`;
-                })
-                .catch(error => {
-                    document.getElementById('result').innerHTML = 
-                        `<div class="alert alert-danger">Erro ao registrar presença. Por favor, tente novamente.</div>`;
-                });
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('result').innerHTML =
+                                `<div class="alert alert-success">Presença registrada com sucesso!</div>`;
+                        } else {
+                            document.getElementById('result').innerHTML =
+                                `<div class="alert alert-danger">${data.message || 'Erro ao registrar presença.'}</div>`;
+                        }
+                    })
+                    .catch(error => {
+                        document.getElementById('result').innerHTML =
+                            `<div class="alert alert-danger">Erro de conexão com o servidor. Por favor, tente novamente.</div>`;
+                        console.error('API Error:', error);
+                    });
 
             } catch (error) {
-                document.getElementById('result').innerHTML = 
-                    '<div class="alert alert-danger">QR Code inválido. Por favor, tente novamente.</div>';
+                document.getElementById('result').innerHTML =
+                    `<div class="alert alert-danger">QR Code inválido. Por favor, tente novamente.</div>`;
             }
         }
 
         function onScanFailure(error) {
-            // Trata falha na leitura, geralmente melhor ignorar e continuar escaneando
+            // It's generally best to ignore these errors unless it's a critical issue
             console.warn(`Falha na leitura do QR Code = ${error}`);
         }
 
         let html5QrcodeScanner = new Html5QrcodeScanner(
-            "reader",
-            { fps: 10, qrbox: {width: 250, height: 250} },
-            /* verbose= */ false);
+            "reader", {
+                fps: 10,
+                qrbox: {
+                    width: 250,
+                    height: 250
+                }
+            },
+            /* verbose= */
+            false);
         html5QrcodeScanner.render(onScanSuccess, onScanFailure);
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

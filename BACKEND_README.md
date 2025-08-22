@@ -47,12 +47,8 @@ This document describes the endpoints, authentication, and data models required 
 - **Attendance**: id, class_day_id, student_id, timestamp
 - **ClassMembership**: id, class_id, user_id, role (professor/student)
 
-## 8. Security
-- Use JWT or session tokens for authentication.
-- Passwords must be hashed (bcrypt or Argon2).
-- Use HTTPS for all endpoints.
-- Implement role-based access control (professor/student/admin).
-- Rate limit sensitive endpoints (e.g., QR code generation, login).
+## 8. Security  
+- Left for future implementations
 
 ## 9. Error Handling
 - Return appropriate HTTP status codes (401 Unauthorized, 403 Forbidden, 404 Not Found, 400 Bad Request, 500 Server Error).

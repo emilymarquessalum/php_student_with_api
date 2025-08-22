@@ -1,5 +1,14 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) session_start();
+
+$_SERVER['REQUEST_URI'] = '/php_student_with_api/';
+if (session_status() === PHP_SESSION_DISABLED) {
+    die('Sessions are disabled. Please enable them in php.ini');
+    exit();
+}
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 if (isset($_SESSION['user_type'])) {
     if ($_SESSION['user_type'] === 'professor') {
         header('Location: dashboard.php');
@@ -10,8 +19,8 @@ if (isset($_SESSION['user_type'])) {
     }
 }
 
-
 require 'config.php';
+require_once 'includes/functions.php';
 
 $erro = "";
 
@@ -19,23 +28,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $email = $_POST['email'];
     $senha = $_POST['senha'];
 
-    // Check if user exists in usuario
-    $stmt = $pdo->prepare("SELECT * FROM usuario WHERE email = ? AND senha = ?");
-    $stmt->execute([$email, $senha]);
-    $user = $stmt->fetch();
+    // Call the API for authentication
+    $response = api_request('/auth/login', 'POST', [
+        'email' => $email,
+        'senha' => $senha
+    ]);
 
-    if ($user) {
-        // Check if professor
-        $stmt = $pdo->prepare("SELECT * FROM professor WHERE email = ?");
-        $stmt->execute([$email]);
-        $professor = $stmt->fetch();
-        if ($professor) {
-            $_SESSION['user_type'] = 'professor';
-            $_SESSION['prof_id'] = $professor['id'];
-            $_SESSION['username'] = $professor['name'] ?? $email;
-            $_SESSION['email'] = $professor['email'];
-            $_SESSION['session_token'] = bin2hex(random_bytes(32));
-            $_SESSION['token_expiry'] = time() + 1800;
+    if ($response['success']) {
+        $data = $response['data'];
+        $user_info = $data['user_info'];
+
+        // Store token and user info in session
+        $_SESSION['access_token'] = $data['access_token'];
+        $_SESSION['token_type'] = $data['token_type'];
+        $_SESSION['user_type'] = $data['user_type'];
+
+        // Store user info based on user type
+        $_SESSION['email'] = $user_info['email'];
+        $_SESSION['username'] = $user_info['name'];
+
+        if ($data['user_type'] === 'professor') {
+            $_SESSION['prof_id'] = $user_info['id'];
             // Redirect to intended page if set
             if (!empty($_SESSION['redirect_after_login'])) {
                 $redirect = $_SESSION['redirect_after_login'];
@@ -45,18 +58,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 header("Location: dashboard.php");
             }
             exit();
-        }
-        // Check if student
-        $stmt = $pdo->prepare("SELECT * FROM aluno WHERE email = ?");
-        $stmt->execute([$email]);
-        $aluno = $stmt->fetch();
-        if ($aluno) {
-            $_SESSION['user_type'] = 'student';
-            $_SESSION['aluno_id'] = $aluno['id'];
-            $_SESSION['username'] = $aluno['name'] ?? $email;
-            $_SESSION['matricula'] = $aluno['matricula'] ?? '';
-            $_SESSION['session_token'] = bin2hex(random_bytes(32));
-            $_SESSION['token_expiry'] = time() + 1800;
+        } elseif ($data['user_type'] === 'aluno') {
+            $_SESSION['aluno_id'] = $user_info['id'];
+            $_SESSION['matricula'] = $user_info['matricula'] ?? '';
             // Redirect to intended page if set
             if (!empty($_SESSION['redirect_after_login'])) {
                 $redirect = $_SESSION['redirect_after_login'];
@@ -67,10 +71,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
             exit();
         }
-        // User exists in usuario but not in professor or aluno 
-        $erro = "Seu usuário existe, mas não está cadastrado como professor ou aluno. Fale com o administrador.";
     } else {
-        $erro = "Email ou senha incorretos";
+        // Handle API error
+        if ($response['status_code'] === 401) {
+            $erro = "Email ou senha incorretos";
+        } else {
+            $erro = "Erro ao conectar com o servidor. Tente novamente mais tarde.";
+        }
     }
 }
 ?>

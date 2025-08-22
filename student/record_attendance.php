@@ -1,58 +1,74 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
-
 require_once '../includes/auth.php';
 require_once '../config.php';
-require_once '../includes/db.php';
 require_once '../includes/functions.php';
 
-
-require_auth('student');
-
-
+require_auth('aluno');
 
 $aluno_id = $_SESSION['aluno_id'] ?? null;
+$turma_id = $_GET['turma_id'] ?? null;
+
+$access_token = $_SESSION['access_token'] ?? '';
 $dia_aula_id = $_GET['dia_aula_id'] ?? null;
 
-
-if (!$dia_aula_id) {
-    echo '<div style="color:red; font-weight:bold;">Erro: Parâmetros ausentes. aluno_id=' . htmlspecialchars($aluno_id) . ' dia_aula_id=' . htmlspecialchars($dia_aula_id) . '</div>';
-    echo '<pre>SESSION DEBUG: ' . print_r($_SESSION, true) . '</pre>';
+if (!$dia_aula_id || !$aluno_id) {
+    echo '<div style="color:red; font-weight:bold;">Erro: Parâmetros de acesso ausentes ou inválidos.</div>';
     exit;
 }
 
+$success = false;
+$error = '';
+$class_day = null;
+$already_marked = false;
 $error_debug = null;
 
 try {
-    // Check if already marked
-    $stmt = $pdo->prepare('SELECT id FROM presenca WHERE dia_aula_id = ? AND aluno_id = ?');
-    $stmt->execute([$dia_aula_id, $aluno_id]);
-    $already = $stmt->fetch();
-} catch (PDOException $e) {
-    $error_debug = 'Erro ao consultar presença: ' . $e->getMessage();
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($already) && !$error_debug) {
-    try {
-        $stmt = $pdo->prepare('INSERT INTO presenca (id, dia_aula_id, aluno_id, timestamp) VALUES (?, ?, ?, NOW())');
-        if ($stmt->execute([uniqid('pres-'), $dia_aula_id, $aluno_id])) {
-            $success = true;
-        } else {
-            $error = 'Erro ao registrar presença.';
-        }
-    } catch (PDOException $e) {
-        $error_debug = 'Erro ao registrar presença: ' . $e->getMessage();
+    // Check if the student has already marked attendance via API
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $check_response = api_request("/student/attendance/$dia_aula_id/check", 'GET', null, $headers);
+    if ($check_response['success']) {
+        $already_marked =         $check_response['data']['data'];
+    } else {
+        $error_debug = 'Erro ao verificar presença: ' . ($check_response['message'] ?? 'Detalhes não disponíveis de presença.');
     }
+
+
+    // Handle form submission to record attendance via API
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$already_marked) {
+        $headers = [
+            "Authorization: Bearer $access_token"
+        ];
+        $response = api_request("/attendance/mark", 'POST', [
+            'dia_aula_id' => $dia_aula_id,
+            'action' => 'marcar_presenca'
+        ], $headers);
+
+        if ($response['success']) {
+            $success = true;
+            $already_marked = true; // Update state after successful registration
+        } else {
+            $error = $response['message'] ?? 'Erro desconhecido ao registrar presença.';
+            $error_debug = 'Erro API: ' . ($response['message'] ?? 'Detalhes não disponíveis.');
+        }
+    }
+
+    // Get class info from the API
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $class_day_response = api_request("/student/classes/$turma_id/day/$dia_aula_id", 'GET', null, $headers);
+    if ($class_day_response['success']) {
+        $class_day = $class_day_response['data'];
+    } else {
+        $error_debug = 'Erro ao buscar informações da aula: ' . ($class_day_response['message'] ?? 'Detalhes não disponíveis de aula.');
+    }
+} catch (Exception $e) {
+    $error_debug = 'Erro de conexão com a API: ' . $e->getMessage();
 }
 
-try {
-    // Get class info
-    $stmt = $pdo->prepare('SELECT da.*, t.nome_turma, d.name as disciplina_name FROM dia_de_aula da JOIN turma t ON da.turma_id = t.id JOIN disciplina d ON t.disciplina_id = d.id WHERE da.id = ?');
-    $stmt->execute([$dia_aula_id]);
-    $class_day = $stmt->fetch();
-} catch (PDOException $e) {
-    $error_debug = 'Erro ao buscar informações da aula: ' . $e->getMessage();
-}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -74,19 +90,15 @@ try {
         <?php else: ?>
             <div class="card mb-3">
                 <div class="card-body">
-                    <h4 class="card-title"><?php echo htmlspecialchars($class_day['nome_turma']); ?></h4>
                     <p class="card-text">
-                        <?php echo htmlspecialchars($class_day['disciplina_name']); ?> <br>
                         <?php echo date('d/m/Y H:i', strtotime($class_day['data'])); ?>
                     </p>
                 </div>
             </div>
-            <?php if (isset($success)): ?>
+            <?php if ($success): ?>
                 <div class="alert alert-success">Presença registrada com sucesso!</div>
-            <?php elseif ($already): ?>
+            <?php elseif ($already_marked): ?>
                 <div class="alert alert-info">Você já registrou presença nesta aula.</div>
-            <?php elseif (isset($error)): ?>
-                <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
             <?php else: ?>
                 <form method="post">
                     <button type="submit" class="btn btn-success">Confirmar Presença</button>

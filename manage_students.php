@@ -1,8 +1,13 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'config.php';
 require_once 'includes/auth.php';
+require_once 'includes/functions.php';
+
 require_auth('professor');
+
 $prof_id = $_SESSION['prof_id'];
+$access_token = $_SESSION['access_token'] ?? '';
 
 // Get turma_id from URL
 $turma_id = $_GET['turma_id'] ?? null;
@@ -16,210 +21,83 @@ $success_message = '';
 $error_message = '';
 $debug_info = '';
 
-// Verify professor has access to this class
+// Data fetched from API
+$class = null;
+$students = [];
+$available_students = [];
+
+// API endpoint for this class 
+
+// --- API Calls for Data and Actions ---
+
 try {
-    $stmt = $pdo->prepare(" 
-        SELECT t.id, t.nome_turma, d.name as disciplina_name, t.year
-        FROM turma t
-        JOIN disciplina d ON t.disciplina_id = d.id
-        JOIN integrante_da_turma i ON t.id = i.turma_id
-        WHERE t.id = ? AND i.professor_id = ? AND i.tipo = 'professor'
-    ");
-    $stmt->execute([$turma_id, $prof_id]);
-    $class = $stmt->fetch();
-    
-    if (!$class) {
+    // Check if professor has access and fetch class details
+
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $class_response = api_request("/professor/classes/$turma_id", 'GET', null, $headers);
+
+    if (!$class_response['success']) {
         echo '<div style="color:red; font-weight:bold;">Erro: Você não tem acesso a esta turma ou ela não existe.</div>';
         exit();
     }
-    
-    // Get students in this class
-    $stmt = $pdo->prepare("
-        SELECT 
-            a.id as aluno_id,
-            a.name as student_name,
-            a.matricula,
-            a.email
-        FROM integrante_da_turma i
-        JOIN aluno a ON i.aluno_id = a.id
-        WHERE i.turma_id = ? AND i.tipo = 'aluno'
-        ORDER BY a.name
-    ");
-    $stmt->execute([$turma_id]);
-    $students = $stmt->fetchAll();
-    
-    // Handle form submission for adding existing student
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_existing') {
-        $aluno_id = trim($_POST['aluno_id'] ?? '');
-        
-        if (empty($aluno_id)) {
-            $error_message = 'Por favor, selecione um aluno.';
-        } else {
-            try {
-                // Check if student is already in the class
-                $stmt = $pdo->prepare("SELECT id FROM integrante_da_turma WHERE turma_id = ? AND aluno_id = ?");
-                $stmt->execute([$turma_id, $aluno_id]);
-                if ($stmt->rowCount() > 0) {
-                    $error_message = 'Este aluno já está matriculado nesta turma.';
-                } else {
-                    // Add student to class
-                    $stmt = $pdo->prepare("INSERT INTO integrante_da_turma (turma_id, aluno_id, tipo) VALUES (?, ?, 'aluno')");
-                    $stmt->execute([$turma_id, $aluno_id]);
-                    $success_message = 'Aluno adicionado à turma com sucesso!';
-                    
-                    // Refresh student list
-                    $stmt = $pdo->prepare("
-                        SELECT 
-                            a.id as aluno_id,
-                            a.name as student_name,
-                            a.matricula,
-                            a.email
-                        FROM integrante_da_turma i
-                        JOIN aluno a ON i.aluno_id = a.id
-                        WHERE i.turma_id = ? AND i.tipo = 'aluno'
-                        ORDER BY a.name
-                    ");
-                    $stmt->execute([$turma_id]);
-                    $students = $stmt->fetchAll();
-                }
-            } catch (PDOException $e) {
-                $error_message = 'Erro ao adicionar aluno à turma.';
-                $debug_info = "Erro SQL: " . $e->getMessage() . " | Código: " . $e->getCode();
-                error_log("Database error in manage_students.php: " . $e->getMessage());
+    $class = $class_response['data'];
+
+    // Handle form submissions
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+        $action = $_POST['action'];
+        $data = $_POST;
+        $headers = [
+            "Authorization: Bearer $access_token"
+        ];
+        $response = api_request("/student/$action", 'POST', $data, $headers);
+
+        if ($response['success']) {
+            if ($action === 'add_existing') {
+                $success_message = 'Aluno adicionado à turma com sucesso!';
+            } elseif ($action === 'create_new') {
+                $success_message = 'Novo aluno criado e adicionado à turma com sucesso!';
+            } elseif ($action === 'remove_student') {
+                $success_message = 'Aluno removido da turma com sucesso!';
             }
+        } else {
+            $error_message = $response['message'] ?? 'Erro desconhecido.';
+            $debug_info = 'Status: ' . ($response['status_code'] ?? 'N/A') . ', Details: ' . ($response['details'] ?? 'N/A');
         }
     }
-    
-    // Handle form submission for creating new student
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_new') {
-        $name = trim($_POST['name'] ?? '');
-        $email = trim($_POST['email'] ?? '');
-        $matricula = trim($_POST['matricula'] ?? '');
-        $senha = trim($_POST['senha'] ?? '123456'); // Default password
-        
-        if (empty($name) || empty($email) || empty($matricula)) {
-            $error_message = 'Todos os campos são obrigatórios.';
-        } else {
-            try {
-                // Start transaction
-                $pdo->beginTransaction();
-                
-                // Check if email already exists in usuario table
-                $stmt = $pdo->prepare("SELECT email FROM usuario WHERE email = ?");
-                $stmt->execute([$email]);
-                if ($stmt->rowCount() === 0) {
-                    // Create new usuario
-                    $stmt = $pdo->prepare("INSERT INTO usuario (email, senha) VALUES (?, ?)");
-                    $stmt->execute([$email, $senha]);
-                }
-                
-                // Check if student already exists
-                $stmt = $pdo->prepare("SELECT id FROM aluno WHERE email = ? OR matricula = ?");
-                $stmt->execute([$email, $matricula]);
-                $existing_student = $stmt->fetch();
-                
-                if ($existing_student) {
-                    $aluno_id = $existing_student['id'];
-                    $error_message = 'Um aluno com este email ou matrícula já existe.';
-                    $pdo->rollBack();
-                } else {
-                    // Create new aluno
-                    $aluno_id = 'aluno-' . uniqid();
-                    $stmt = $pdo->prepare("INSERT INTO aluno (id, email, matricula, name) VALUES (?, ?, ?, ?)");
-                    $stmt->execute([$aluno_id, $email, $matricula, $name]);
-                    
-                    // Add student to class
-                    $stmt = $pdo->prepare("INSERT INTO integrante_da_turma (turma_id, aluno_id, tipo) VALUES (?, ?, 'aluno')");
-                    $stmt->execute([$turma_id, $aluno_id]);
-                    
-                    $pdo->commit();
-                    $success_message = 'Novo aluno criado e adicionado à turma com sucesso!';
-                    
-                    // Refresh student list
-                    $stmt = $pdo->prepare("
-                        SELECT 
-                            a.id as aluno_id,
-                            a.name as student_name,
-                            a.matricula,
-                            a.email
-                        FROM integrante_da_turma i
-                        JOIN aluno a ON i.aluno_id = a.id
-                        WHERE i.turma_id = ? AND i.tipo = 'aluno'
-                        ORDER BY a.name
-                    ");
-                    $stmt->execute([$turma_id]);
-                    $students = $stmt->fetchAll();
-                }
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                $error_message = 'Erro ao criar novo aluno.';
-                $debug_info = "Erro SQL: " . $e->getMessage() . " | Código: " . $e->getCode();
-                error_log("Database error in manage_students.php: " . $e->getMessage());
-            }
-        }
+
+    // Always fetch the latest list of students after an action
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $students_response = api_request("/professor/classes/$turma_id/students", 'GET', null, $headers);
+    if ($students_response['success']) {
+        $students = $students_response['data'];
+    } else {
+        $error_message = 'Erro ao carregar a lista de alunos.';
+        $debug_info = 'Status: ' . ($students_response['status_code'] ?? 'N/A') . ', Details: ' . ($students_response['details'] ?? 'N/A');
     }
-    
-    // Handle student removal
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'remove_student') {
-        $aluno_id = trim($_POST['aluno_id'] ?? '');
-        
-        if (empty($aluno_id)) {
-            $error_message = 'ID do aluno não fornecido.';
-        } else {
-            try {
-                // Remove student from class
-                $stmt = $pdo->prepare("DELETE FROM integrante_da_turma WHERE turma_id = ? AND aluno_id = ? AND tipo = 'aluno'");
-                $stmt->execute([$turma_id, $aluno_id]);
-                
-                if ($stmt->rowCount() > 0) {
-                    $success_message = 'Aluno removido da turma com sucesso!';
-                    
-                    // Refresh student list
-                    $stmt = $pdo->prepare("
-                        SELECT 
-                            a.id as aluno_id,
-                            a.name as student_name,
-                            a.matricula,
-                            a.email
-                        FROM integrante_da_turma i
-                        JOIN aluno a ON i.aluno_id = a.id
-                        WHERE i.turma_id = ? AND i.tipo = 'aluno'
-                        ORDER BY a.name
-                    ");
-                    $stmt->execute([$turma_id]);
-                    $students = $stmt->fetchAll();
-                } else {
-                    $error_message = 'Aluno não encontrado na turma.';
-                }
-            } catch (PDOException $e) {
-                $error_message = 'Erro ao remover aluno da turma.';
-                $debug_info = "Erro SQL: " . $e->getMessage() . " | Código: " . $e->getCode();
-                error_log("Database error in manage_students.php: " . $e->getMessage());
-            }
-        }
+
+    // Fetch available students
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $available_students_response = api_request("/professor/classes/$turma_id/students/not-enrolled", 'GET', null, $headers);
+    if ($available_students_response['success']) {
+        $available_students = $available_students_response['data'];
+    } else {
+        $error_message .= ' Erro ao carregar alunos disponíveis.';
     }
-    
-    // Get all students not in this class for the dropdown
-    $stmt = $pdo->prepare("
-        SELECT a.id, a.name, a.matricula, a.email
-        FROM aluno a
-        WHERE a.id NOT IN (
-            SELECT i.aluno_id FROM integrante_da_turma i 
-            WHERE i.turma_id = ? AND i.tipo = 'aluno'
-        )
-        ORDER BY a.name
-    ");
-    $stmt->execute([$turma_id]);
-    $available_students = $stmt->fetchAll();
-    
-} catch (PDOException $e) {
-    echo '<div style="color:red; font-weight:bold;">Erro de banco de dados: '.htmlspecialchars($e->getMessage()).'</div>';
-    exit();
+} catch (Exception $e) {
+    $error_message = 'Erro ao conectar com o servidor.';
+    $debug_info = $e->getMessage();
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -231,26 +109,31 @@ try {
     <style>
         .student-card {
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             transition: all 0.3s ease;
             margin-bottom: 15px;
         }
+
         .student-card:hover {
             transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
+
         .student-info {
             padding: 15px;
         }
+
         .student-name {
             font-weight: 600;
             font-size: 1.1rem;
             margin-bottom: 5px;
         }
+
         .student-details {
             color: #666;
             font-size: 0.9rem;
         }
+
         .student-actions {
             display: flex;
             justify-content: flex-end;
@@ -259,28 +142,32 @@ try {
             border-bottom-left-radius: 10px;
             border-bottom-right-radius: 10px;
         }
+
         .tab-content {
             padding: 20px 0;
         }
+
         .form-section {
             background-color: #f8f9fa;
             border-radius: 10px;
             padding: 20px;
             margin-bottom: 20px;
         }
+
         .nav-tabs .nav-link {
             border-radius: 10px 10px 0 0;
             padding: 10px 20px;
             font-weight: 500;
         }
+
         .nav-tabs .nav-link.active {
             background-color: #f8f9fa;
             border-bottom-color: #f8f9fa;
         }
     </style>
 </head>
+
 <body class="dashboard-page">
-    <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-modern">
         <div class="container">
             <a class="navbar-brand" href="dashboard.php">
@@ -288,7 +175,7 @@ try {
                 Presença QR
             </a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="view_class.php?turma_id=<?php echo $turma_id; ?>">
+                <a class="nav-link" href="view_class.php?turma_id=<?php echo htmlspecialchars($turma_id); ?>">
                     <i class="fas fa-arrow-left me-1"></i>
                     Voltar para Turma
                 </a>
@@ -305,16 +192,15 @@ try {
     </nav>
 
     <div class="container mt-4">
-        <!-- Class Header -->
         <div class="class-header fade-in">
             <h1 class="welcome-title">
                 <i class="fas fa-users-cog me-2 text-primary"></i>
                 Gerenciar Alunos
             </h1>
             <p class="welcome-subtitle">
-                Turma: <?php echo htmlspecialchars($class['nome_turma']); ?> | 
-                <?php echo htmlspecialchars($class['disciplina_name']); ?> | 
-                Ano <?php echo date('Y', strtotime($class['year'])); ?>
+                Turma: <?php echo htmlspecialchars($class['nome_turma'] ?? 'N/A'); ?> |
+                <?php echo htmlspecialchars($class['disciplina_name'] ?? 'N/A'); ?> |
+                Ano <?php echo date('Y', strtotime($class['year'] ?? 'now')); ?>
             </p>
         </div>
 
@@ -329,13 +215,13 @@ try {
             <div class="alert alert-danger" role="alert">
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 <?php echo htmlspecialchars($error_message); ?>
-                
+
                 <?php if ($debug_info): ?>
                     <div class="mt-2">
-                        <button type="button" 
-                                class="btn btn-sm btn-outline-danger" 
-                                onclick="toggleDebugInfo()"
-                                id="debugToggle">
+                        <button type="button"
+                            class="btn btn-sm btn-outline-danger"
+                            onclick="toggleDebugInfo()"
+                            id="debugToggle">
                             <i class="fas fa-bug me-1"></i>
                             Mostrar Detalhes Técnicos
                         </button>
@@ -379,17 +265,18 @@ try {
                                             <div class="student-info">
                                                 <div class="student-name">
                                                     <i class="fas fa-user-graduate me-2 text-primary"></i>
-                                                    <?php echo htmlspecialchars($student['student_name']); ?>
+                                                    <?php echo htmlspecialchars($student['name'] ?? 'N/A'); ?>
                                                 </div>
                                                 <div class="student-details">
-                                                    <div><i class="fas fa-id-card me-2"></i> <?php echo htmlspecialchars($student['matricula']); ?></div>
-                                                    <div><i class="fas fa-envelope me-2"></i> <?php echo htmlspecialchars($student['email']); ?></div>
+                                                    <div><i class="fas fa-id-card me-2"></i> <?php echo htmlspecialchars($student['matricula'] ?? 'N/A'); ?></div>
+                                                    <div><i class="fas fa-envelope me-2"></i> <?php echo htmlspecialchars($student['email'] ?? 'N/A'); ?></div>
                                                 </div>
                                             </div>
                                             <div class="student-actions">
                                                 <form method="POST" onsubmit="return confirm('Tem certeza que deseja remover este aluno da turma?');">
                                                     <input type="hidden" name="action" value="remove_student">
-                                                    <input type="hidden" name="aluno_id" value="<?php echo htmlspecialchars($student['aluno_id']); ?>">
+                                                    <input type="hidden" name="aluno_id" value="<?php echo htmlspecialchars($student['id']); ?>">
+                                                    <input type="hidden" name="turma_id" value="<?php echo htmlspecialchars($turma_id); ?>">
                                                     <button type="submit" class="btn btn-sm btn-outline-danger">
                                                         <i class="fas fa-user-minus me-1"></i>
                                                         Remover da Turma
@@ -433,6 +320,7 @@ try {
                                 <div class="form-section">
                                     <form method="POST">
                                         <input type="hidden" name="action" value="add_existing">
+                                        <input type="hidden" name="turma_id" value="<?php echo htmlspecialchars($turma_id); ?>">
                                         <div class="mb-3">
                                             <label for="aluno_id" class="form-label">
                                                 <i class="fas fa-user me-1"></i>
@@ -462,8 +350,10 @@ try {
                             </div>
                             <div class="tab-pane fade" id="new" role="tabpanel">
                                 <div class="form-section">
+
                                     <form method="POST">
                                         <input type="hidden" name="action" value="create_new">
+                                        <input type="hidden" name="turma_id" value="<?php echo htmlspecialchars($turma_id); ?>">
                                         <div class="mb-3">
                                             <label for="name" class="form-label">
                                                 <i class="fas fa-user me-1"></i>
@@ -515,7 +405,7 @@ try {
         function toggleDebugInfo() {
             const debugInfo = document.getElementById('debugInfo');
             const debugToggle = document.getElementById('debugToggle');
-            
+
             if (debugInfo.style.display === 'none') {
                 debugInfo.style.display = 'block';
                 debugToggle.innerHTML = '<i class="fas fa-bug me-1"></i> Ocultar Detalhes Técnicos';
@@ -524,8 +414,7 @@ try {
                 debugToggle.innerHTML = '<i class="fas fa-bug me-1"></i> Mostrar Detalhes Técnicos';
             }
         }
-        
-        // Fade-in animation
+
         document.addEventListener('DOMContentLoaded', function() {
             const elements = document.querySelectorAll('.fade-in');
             elements.forEach((el, index) => {
@@ -533,7 +422,7 @@ try {
                     el.style.opacity = '0';
                     el.style.transform = 'translateY(20px)';
                     el.style.transition = 'all 0.5s ease';
-                    
+
                     setTimeout(() => {
                         el.style.opacity = '1';
                         el.style.transform = 'translateY(0)';
@@ -543,4 +432,5 @@ try {
         });
     </script>
 </body>
+
 </html>

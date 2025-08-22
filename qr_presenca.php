@@ -1,62 +1,57 @@
 <?php
-require 'config.php';
+if (session_status() === PHP_SESSION_NONE) session_start();
+require_once 'config.php';
 require_once 'includes/auth.php';
+require_once 'includes/functions.php';
+
 require_auth('professor');
+
 $prof_id = $_SESSION['prof_id'];
+$access_token = $_SESSION['access_token'] ?? '';
 
 // Get dia_aula_id from URL
 $dia_aula_id = $_GET['dia_aula_id'] ?? null;
-if (!$dia_aula_id) {
+$turma_id = $_GET['turma_id'] ?? null;
+if (!$dia_aula_id || !$turma_id) {
     header('Location: dashboard.php');
     exit();
 }
 
-// Get class day information and verify professor has access
-try {
-    $stmt = $pdo->prepare("
-        SELECT da.*, t.nome_turma, d.name as disciplina_name
-        FROM dia_de_aula da
-        JOIN turma t ON da.turma_id = t.id
-        JOIN disciplina d ON t.disciplina_id = d.id 
-        JOIN integrante_da_turma i ON t.id = i.turma_id
-        WHERE da.id = ? AND i.professor_id = ? AND i.tipo = 'professor'
-    ");
-    $stmt->execute([$dia_aula_id, $prof_id]);
-    $class_day = $stmt->fetch();
+$class_day = null;
+$attendance_count = 0;
 
-    if (!$class_day) {
-        echo '<div style="color:red; font-weight:bold;">Erro: Você não tem acesso a esta aula ou ela não existe.<br>dia_aula_id: ' . htmlspecialchars($dia_aula_id) . '<br>prof_id: ' . htmlspecialchars($prof_id) . '</div>';
+try {
+    // Call the API to get class day information and verify professor access
+    $headers = [
+        "Authorization: Bearer $access_token"
+    ];
+    $response = api_request("/professor/classes/$turma_id/days/$dia_aula_id", 'GET', null, $headers);
+
+    if (!$response['success']) {
+        echo '<div style="color:red; font-weight:bold;">Erro: Você não tem acesso a esta aula ou ela não existe.</div>';
         exit();
     }
-
-    // Get attendance count
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) as total_presenca
-        FROM presenca 
-        WHERE dia_aula_id = ?
-    ");
-    $stmt->execute([$dia_aula_id]);
-    $attendance_count = $stmt->fetch()['total_presenca'];
-} catch (PDOException $e) {
-    echo '<div style="color:red; font-weight:bold;">Erro de banco de dados: ' . htmlspecialchars($e->getMessage()) . '</div>';
+    $class_day = $response['data'];
+    $attendance_count = $class_day['attendance_count'];
+} catch (Exception $e) {
+    echo '<div style="color:red; font-weight:bold;">Erro ao conectar com o servidor. Tente novamente mais tarde.</div>';
     exit();
 }
 
-// Handle AJAX requests for attendance updates
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_attendance') {
     header('Content-Type: application/json');
 
     try {
-        $stmt = $pdo->prepare("
-            SELECT COUNT(*) as total_presenca
-            FROM presenca 
-            WHERE dia_aula_id = ?
-        ");
-        $stmt->execute([$dia_aula_id]);
-        $count = $stmt->fetch()['total_presenca'];
-
-        echo json_encode(['success' => true, 'count' => $count]);
-    } catch (PDOException $e) {
+        $headers = [
+            "Authorization: Bearer $access_token"
+        ];
+        $response = api_request("/attendance/$dia_aula_id/count", 'GET', null, $headers);
+        if ($response['success']) {
+            echo json_encode(['success' => true, 'count' => $response['data']['total_presenca']]);
+        } else {
+            echo json_encode(['success' => false, 'error' => $response['message'] ?? 'Erro desconhecido.']);
+        }
+    } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
     exit();
@@ -64,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Generate QR Code data as a URL to the student attendance page
 $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']);
-$student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aula_id=" . urlencode($dia_aula_id);
+$student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aula_id=" . urlencode($dia_aula_id) . "&turma_id=" . urlencode($turma_id);
 ?>
 
 <!DOCTYPE html>
@@ -73,7 +68,7 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code Presença - <?php echo htmlspecialchars($class_day['nome_turma']); ?></title>
+    <title>QR Code Presença</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="assets/css/main.css" rel="stylesheet">
@@ -82,7 +77,6 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
 </head>
 
 <body class="qr-page">
-    <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-modern">
         <div class="container">
             <a class="navbar-brand" href="dashboard.php">
@@ -103,12 +97,8 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
     </nav>
 
     <div class="container-fluid p-0">
-        <!-- Main QR Code Section - Full Width -->
         <div class="qr-main-section">
             <div class="qr-content">
-
-
-                <!-- QR Code Container -->
                 <div class="qr-display-container qr-code-active fade-in">
                     <div class="qr-code-wrapper">
                         <div id="qrcode" class="qr-code-element"></div>
@@ -120,21 +110,18 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
                         </h3>
                     </div>
                 </div>
-                <!-- Combined Class Info and Attendance Card -->
                 <div class="class-attendance-card fade-in">
                     <div class="card-content">
-                        <!-- Left side - Class Info -->
                         <div class="class-info-section">
-                            <h1 class="class-title">
-                                <?php echo htmlspecialchars($class_day['nome_turma']); ?>
-                            </h1>
                             <p class="class-subtitle">
-                                <?php echo htmlspecialchars($class_day['disciplina_name']); ?> •
                                 <?php echo date('d/m/Y H:i', strtotime($class_day['data'])); ?>
+                            </p>
                             <div class="counter-label">Alunos Presentes</div>
+                            <div class="attendance-count-container">
+                                <span class="attendance-count" id="attendanceCount"><?php echo htmlspecialchars($attendance_count); ?></span>
+                            </div>
                         </div>
 
-                        <!-- Status items to the right of attendance -->
                         <div class="status-items">
                             <div class="stat-item">
                                 <i class="fas fa-clock text-primary"></i>
@@ -153,18 +140,14 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
                 </div>
             </div>
         </div>
-        <!-- Action Buttons -->
         <div class="qr-actions fade-in">
             <button class="btn-regenerate" onclick="regenerateQR()">
                 <i class="fas fa-sync-alt"></i>
                 Regenerar QR Code
             </button>
-
         </div>
 
-        <!-- Stats Row - Below QR Code -->
         <div class="stats-row">
-            <!-- Recent Activity -->
             <div class="stats-card fade-in">
                 <div class="stats-header">
                     <h5>
@@ -183,7 +166,6 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
                 </div>
             </div>
 
-            <!-- Instructions -->
             <div class="stats-card fade-in">
                 <div class="stats-header">
                     <h5>
@@ -202,24 +184,20 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
             </div>
         </div>
     </div>
-    </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let qrCode = null;
         let attendanceInterval = null;
+        let lastCount = <?php echo json_encode($attendance_count); ?>;
 
         // Generate initial QR Code - BIGGER SIZE
         function generateQRCode() {
             const qrData = <?php echo json_encode($student_url); ?>;
-            // Clear previous QR code
             document.getElementById('qrcode').innerHTML = '';
-            // Generate new QR code with BIGGER SIZE
             qrCode = new QRCode(document.getElementById('qrcode'), {
                 text: qrData,
-                width: 350, // Increased from 300
-                height: 350, // Increased from 300
+                width: 350,
+                height: 350,
                 colorDark: "#4f46e5",
                 colorLight: "#ffffff",
                 correctLevel: QRCode.CorrectLevel.M
@@ -232,8 +210,8 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
             document.getElementById('qrcode').innerHTML = '';
             qrCode = new QRCode(document.getElementById('qrcode'), {
                 text: qrData,
-                width: 350, // Increased from 300
-                height: 350, // Increased from 300
+                width: 350,
+                height: 350,
                 colorDark: "#4f46e5",
                 colorLight: "#ffffff",
                 correctLevel: QRCode.CorrectLevel.M
@@ -243,7 +221,7 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
 
         // Update attendance count
         function updateAttendanceCount() {
-            fetch('qr_presenca.php', {
+            fetch('qr_presenca.php?dia_aula_id=' + <?php echo json_encode($dia_aula_id); ?>, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -253,17 +231,17 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        const currentCount = parseInt(document.getElementById('attendanceCount').textContent);
                         const newCount = data.count;
 
-                        if (newCount > currentCount) {
-                            document.getElementById('attendanceCount').textContent = newCount;
-                            document.getElementById('attendanceCount').style.animation = 'bounce 0.5s ease';
+                        if (newCount > lastCount) {
+                            const attendanceCountElement = document.getElementById('attendanceCount');
+                            attendanceCountElement.textContent = newCount;
+                            attendanceCountElement.style.animation = 'bounce 0.5s ease';
                             setTimeout(() => {
-                                document.getElementById('attendanceCount').style.animation = '';
+                                attendanceCountElement.style.animation = '';
                             }, 500);
-
                             addActivity(`Aluno marcou presença (${newCount} total)`, 'fas fa-user-check text-success');
+                            lastCount = newCount;
                         }
                     }
                 })
@@ -288,23 +266,15 @@ $student_url = rtrim($base_url, '/\\') . "/student/record_attendance.php?dia_aul
 
             activityList.insertBefore(activityItem, activityList.firstChild);
 
-            // Keep only last 5 activities
             while (activityList.children.length > 5) {
                 activityList.removeChild(activityList.lastChild);
             }
         }
 
-
-
         // Initialize page
         document.addEventListener('DOMContentLoaded', function() {
-            // Generate QR Code
             generateQRCode();
-
-            // Start polling for attendance updates every 5 seconds
             attendanceInterval = setInterval(updateAttendanceCount, 5000);
-
-            // Add fade-in animations
             const elements = document.querySelectorAll('.fade-in');
             elements.forEach((el, index) => {
                 setTimeout(() => {
