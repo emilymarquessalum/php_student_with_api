@@ -1,0 +1,543 @@
+/* QR Page Layout */
+.qr-page {
+    background: var(--bg-gradient-soft);
+    min-height: 100vh;
+}
+
+/* Main QR Section - Full Screen Center */
+.qr-main-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 80px);
+    padding: var(--space-md);
+}
+
+.qr-content {
+    width: 100%;
+    max-width: 800px;
+    text-align: center;
+}
+
+/* Combined Class Info and Attendance Card */
+.class-attendance-card {
+    position: relative;
+    background: var(--bg-white);
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
+    margin-bottom: 1.5rem; /* Reduced from 2rem */
+    width: 100%;
+    max-width: 800px; /* Reduced from 900px */
+    overflow: hidden;
+}
+
+.class-attendance-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--gradient-primary);
+}
+
+.card-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    padding: 1.5rem; /* Reduced from 2rem */
+}
+
+/* Left side - Class Info */
+.class-info-section {
+    flex: 1;
+    text-align: left;
+}
+
+.class-info-section .class-title {
+    font-size: 1.75rem; /* Reduced from 2.5rem */
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: var(--space-sm);
+}
+
+.class-info-section .class-subtitle {
+    font-size: 1rem; /* Reduced from 1.2rem */
+    color: var(--text-light);
+    margin: 0;
+}
+
+/* Right side - Attendance Stats */
+.attendance-section {
+    flex: 0 0 auto;
+    text-align: center;
+    min-width: 350px; /* Reduced from 400px */
+}
+
+.attendance-header {
+    margin-bottom: 0.75rem; /* Reduced from 1rem */
+}
+
+.attendance-header h4 {
+    font-size: 0.85rem; /* Reduced from 1rem */
+    font-weight: 600;
+    color: var(--text-medium);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.attendance-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xl);
+    justify-content: center;
+}
+
+.attendance-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem; /* Reduced from 0.5rem */
+}
+
+.attendance-display .counter-number {
+    font-size: 2.5rem; /* Reduced from 4rem */
+    font-weight: 700;
+    color: var(--primary-color);
+    line-height: 1;
+}
+ 
+.attendance-display .counter-label {
+    font-size: 0.85rem; /* Reduced from 1rem */
+    color: var(--text-medium);
+    font-weight: 500;
+}
+
+/* Status items to the right of attendance - HORIZONTAL layout */
+.status-items {
+    display: flex;
+    flex-direction: row;
+    gap: var(--space-md);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.status-items .stat-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.75rem; /* Reduced from 0.85rem */
+    color: var(--text-medium);
+    white-space: nowrap;
+}
+
+.status-items .stat-item i {
+    width: 14px; /* Reduced from 16px */
+    text-align: center;
+    font-size: 0.7rem; /* Added smaller icon size */
+}
+
+/* QR Code Display - Main Focus, truly centered */
+.qr-display-container {
+    background: var(--bg-white);
+    border-radius: 20px;
+    padding: var(--space-md) var(--space-xl);
+    margin-bottom: var(--space-lg);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border-light);
+    max-width: 600px;
+}
+
+.qr-code-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: var(--space-xl);
+    padding: var(--space-xl);
+    background: var(--bg-light);
+    border-radius: 20px;
+    border: 3px dashed var(--success-color);
+    min-height: 420px;
+}
+
+.qr-code-element {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+.qr-code-element canvas {
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+}
+
+/* QR Instructions */
+.qr-instructions h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.qr-instructions p {
+    font-size: 1rem;
+    color: var(--text-medium);
+    line-height: 1.6;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+/* Action Buttons Row */
+.qr-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 2rem;
+}
+
+.btn-regenerate,
+.btn-finish {
+    padding: 1rem 2rem;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+}
+
+.btn-regenerate {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-regenerate:hover {
+    background: var(--secondary-color);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    color: white;
+}
+
+.btn-finish {
+    background: var(--success-color);
+    color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-finish:hover {
+    background: #059669;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    color: white;
+}
+
+/* Stats Row - Below QR Code */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 900px;
+    margin-top: 1rem;
+}
+
+.stats-card {
+    background: var(--bg-white);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+}
+
+.stats-header {
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-light);
+    padding: 1rem 1.25rem;
+}
+
+.stats-header h4,
+.stats-header h5 {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+}
+
+.stats-body {
+    padding: 1.25rem;
+}
+
+/* Attendance Counter - Horizontal layout */
+.attendance-counter {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.counter-number {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    line-height: 1;
+}
+
+.counter-label {
+    font-size: 1rem;
+    color: var(--text-medium);
+    font-weight: 500;
+}
+
+/* Stats Details - Horizontal */
+.stats-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-medium);
+}
+
+.stat-item i {
+    width: 16px;
+    text-align: center;
+}
+
+/* Activity List - Compact */
+.activity-list {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.activity-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 0.85rem;
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.activity-item i {
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.activity-item span {
+    flex: 1;
+    color: var(--text-medium);
+}
+
+.activity-item small {
+    color: var(--text-light);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+/* Instructions List */
+.instruction-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.instruction-list li {
+    padding: 0.5rem 0;
+    color: var(--text-medium);
+    font-size: 0.9rem;
+    position: relative;
+    padding-left: 1.5rem;
+}
+
+.instruction-list li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--success-color);
+    font-weight: bold;
+}
+
+/* Active QR Code State */
+.qr-code-active .qr-code-wrapper {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.qr-code-active .qr-code-wrapper::after {
+    content: "✓ QR Code Ativo";
+    position: absolute;
+    top: -12px;
+    right: 1rem;
+    background: var(--success-color);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.qr-code-wrapper {
+    position: relative;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .qr-main-section {
+        padding: 1rem;
+    }
+    
+    .card-content {
+        flex-direction: column;
+        text-align: center;
+        gap: var(--space-lg);
+    }
+    
+    .class-info-section {
+        text-align: center;
+    }
+    
+    .class-info-section .class-title {
+        font-size: 1.5rem; /* Reduced from 2rem */
+    }
+    
+    .class-info-section .class-subtitle {
+        font-size: 0.9rem; /* Reduced from 1rem */
+    }
+    
+    .attendance-section {
+        min-width: auto;
+    }
+    
+    .attendance-content {
+        flex-direction: column;
+        gap: var(--space-md);
+    }
+    
+    .status-items {
+        flex-direction: column;
+        gap: var(--space-sm);
+        align-items: center;
+    }
+    
+    .attendance-display .counter-number {
+        font-size: 2rem; /* Reduced from 3rem */
+    }
+}
+
+@media (max-width: 640px) {
+    .card-content {
+        padding: 1rem;
+    }
+    
+    .class-info-section .class-title {
+        font-size: 1.25rem; /* Reduced from 1.75rem */
+    }
+    
+    .class-info-section .class-subtitle {
+        font-size: 0.8rem; /* Reduced from 0.9rem */
+    }
+    
+    .attendance-content {
+        gap: 0.75rem; /* Reduced from 1rem */
+    }
+    
+    .status-items {
+        gap: 0.5rem; /* Reduced from 0.75rem */
+    }
+    
+    .status-items .stat-item {
+        font-size: 0.7rem; /* Reduced from 0.75rem */
+    }
+    
+    .attendance-display .counter-number {
+        font-size: 1.75rem; /* Reduced from 2rem */
+    }
+    
+    .attendance-display .counter-label {
+        font-size: 0.75rem; /* Reduced from 0.85rem */
+    }
+}
+
+/* Loading and Animation States */
+.qr-code-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    color: var(--text-light);
+}
+
+.qr-code-loading i {
+    font-size: 3rem;
+    animation: pulse 2s infinite;
+}
+
+/* Success Animation for Counter */
+@keyframes bounce {
+    0%, 20%, 53%, 80%, 100% { 
+        transform: translate3d(0,0,0); 
+    }
+    40%, 43% { 
+        transform: translate3d(0,-8px,0); 
+    }
+    70% { 
+        transform: translate3d(0,-4px,0); 
+    }
+    90% { 
+        transform: translate3d(0,-2px,0); 
+    }
+}
+
+/* Pulse animation for loading states */
+@keyframes pulse {
+    0%, 100% { 
+        opacity: 1; 
+    }
+    50% { 
+        opacity: 0.5; 
+    }
+}
+
+/* Fade in animation utility */
+.fade-in {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease;
+}
+
+.fade-in.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
